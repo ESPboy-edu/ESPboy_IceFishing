@@ -7,12 +7,26 @@
 #include "lib/ESPboyInit.h"
 #include "lib/ESPboyInit.cpp"
 
+#define PAD_LEFT        0x01
+#define PAD_UP          0x02
+#define PAD_DOWN        0x04
+#define PAD_RIGHT       0x08
+#define PAD_ACT         0x10
+#define PAD_ESC         0x20
+#define PAD_LFT         0x40
+#define PAD_RGT         0x80
+
+#define PAD_HOOK         0x8000
+#define PAD_LEFT2        0x2000
+#define PAD_RIGHT2       0x4000
+#define PAD_ACT2         0x1000
+
+
 //hardware settings
 #define SERVO_ATTACH_PIN D8
 #define SERVO_ATTACH_START 800
 #define SERVO_ATTACH_END 2700
 #define SERVO_ARM_LENGTH 34 //servo arm length between axis
-#define HOOK_SENSOR_PIN 2
 #define DISPLAY_FPS 10
 #define LED_LIGHT 10
 #define DELAY_LOOP 20
@@ -89,6 +103,10 @@ struct FishingRodSettingsStruct{
 
 
 
+uint16_t getKeys() { return ((~myESPboy.mcp.readGPIOAB()) & 0x7039); }
+bool getHook() { return (((~myESPboy.mcp.readGPIOAB()) & PAD_HOOK)?1:0); }
+
+
 void toneUp(){
   myESPboy.playTone(200,100);
   delay(100);
@@ -157,17 +175,12 @@ FishDetectionResult detectingFish(){
   if (millis () - fishingRodSettings.millisStartFishDetection < PAUSE_BEFORE_STARTING_FISH_DETECTION_SEC * 1000) 
     return WAIT_DETECTION;
 
-  pinMode(HOOK_SENSOR_PIN, INPUT_PULLUP);
-  
-  if (!digitalRead(HOOK_SENSOR_PIN)){
-    pinMode(HOOK_SENSOR_PIN, OUTPUT);
-    //fishingRodSettings.fishDetectionsCount++;
+  if (getHook()){
     myESPboy.myLED.setRGB(LED_LIGHT, 0, 0);
     toneUp();
+    fishingRodSettings.millisStartFishDetection = 0;
     return(DETECTED);  
   }
-  
-  pinMode(HOOK_SENSOR_PIN, OUTPUT);
 
   if(millis () - fishingRodSettings.millisStartFishDetection < (fishingRodSettings.fishDetectionTimeSetting) * 1000) 
     return (DETECTING);
@@ -198,32 +211,34 @@ void stopFishing(){
 
 
 void hookedStandby(){
-  servo.write(180);
-  delay(500);
+  servo.attach(SERVO_ATTACH_PIN, SERVO_ATTACH_START, SERVO_ATTACH_END, SERVO_ATTACH_END*0.6);
   myESPboy.myLED.setRGB(0,0,0);
   fishingRodSettings.UIupdateFlag++;
+  fishingRodSettings.currentFishingMode = MODE_STANDBY;
+  toneHoocked();
+  delay(500);
   servo.detach();
 }
 
 
 void checkKeysStartStop(){
-  static uint8_t readingMCP;
+  static uint16_t readingMCP;
   static uint32_t pressedButtonTimer;
   
-  readingMCP = myESPboy.getKeys();
+  readingMCP = getKeys();
   if (!readingMCP) return;
 
   fishingRodSettings.UIupdateFlag++;
   
   pressedButtonTimer = millis();
-  while (myESPboy.getKeys() && millis() - pressedButtonTimer < LONG_PRESS_BUTTON_DELAY) delay(100);
+  while (getKeys() && millis() - pressedButtonTimer < LONG_PRESS_BUTTON_DELAY) delay(100);
   
   if (millis() - pressedButtonTimer > LONG_PRESS_BUTTON_DELAY ) {
     fishingRodSettings.currentFishingMode = MODE_SETTINGS;
     myESPboy.myLED.setRGB(LED_LIGHT, LED_LIGHT, 0);
     drawUI(1);
     toneUp();
-    while(myESPboy.getKeys()) delay(100);
+    while(getKeys()) delay(100);
   }
   else{
     if (fishingRodSettings.currentFishingMode == MODE_STANDBY){ 
@@ -238,7 +253,7 @@ void checkKeysStartStop(){
       drawUI(0);
       toneDown();
       stopFishing();}
-    while(myESPboy.getKeys()) delay(100);
+    while(getKeys()) delay(100);
   }
 }
 
@@ -340,6 +355,11 @@ void setup() {
   Serial.begin(115200);
   EEPROM.begin(sizeof(saveData)+10);
   myESPboy.begin("Ice Fishing"); //Init ESPboy
+  
+  for (int i=12;i<16;i++){  
+    myESPboy.mcp.pinMode(i, INPUT);
+    myESPboy.mcp.pullUp(i, HIGH);}
+
   loadDataFunc();
   startFishing();
   delay(500);
@@ -357,7 +377,10 @@ void loop(){
   switch(fishingRodSettings.currentFishingMode){
     
     case MODE_STANDBY:
-      if (!myESPboy.myLED.getRGB()) myESPboy.myLED.setRGB(0, 0, LED_LIGHT);
+      if (myESPboy.myLED.getB() != LED_LIGHT || myESPboy.myLED.getR() || myESPboy.myLED.getG()) myESPboy.myLED.setRGB(0, 0, LED_LIGHT);
+      if (getHook()){
+        myESPboy.myLED.setRGB(LED_LIGHT, 0, 0);
+        toneUp();}
       break;
       
     case MODE_FISHING:
@@ -372,16 +395,10 @@ void loop(){
       
       if (fdr == DETECTED){
         startFishing();
-        fishingRodSettings.currentFishingMode = MODE_HOOK; }
-      if (fdr == NOT_DETECTED){
-        startFishing();
-        fishingRodSettings.currentFishingMode = MODE_FISHING;}
-      break;
-      
-    case MODE_HOOK:
+        fishingRodSettings.currentFishingMode = MODE_HOOK; 
         myESPboy.myLED.setRGB(LED_LIGHT, LED_LIGHT, LED_LIGHT);
         servo.write(90);
-        delay(1000);
+        delay(1500);
         servo.write(80);
         delay(500);
         servo.write(70);
@@ -391,13 +408,17 @@ void loop(){
         servo.write(50);
         delay(500);
         servo.detach();
-                      
+      }
+      if (fdr == NOT_DETECTED){
+        startFishing();
+        fishingRodSettings.currentFishingMode = MODE_FISHING;}
+      break;
+      
+    case MODE_HOOK:   
       fdr = detectingFish();
       
       if (fdr == DETECTED){
-        fishingRodSettings.currentFishingMode = MODE_STANDBY;
-        hookedStandby();
-        toneHoocked();}
+        hookedStandby();}
       if (fdr == NOT_DETECTED){
         fishingRodSettings.currentFishingMode = MODE_FISHING;
         startFishing();}
@@ -406,15 +427,15 @@ void loop(){
    case MODE_SETTINGS:
      menuPosition = 1;
      drawUI(1);
-     while (!((readingMCP = myESPboy.getKeys())&PAD_ESC) && menuPosition < 5){
+     while (!((readingMCP = getKeys())&PAD_ESC) && menuPosition < 5){
        parameter = 0;
        if(readingMCP) fishingRodSettings.UIupdateFlag++;
-       if(readingMCP & PAD_RIGHT) {parameter=1; myESPboy.playTone(40,40);}
-       if(readingMCP & PAD_LEFT) {parameter=-1; myESPboy.playTone(40,40);}
-       if(readingMCP & PAD_ACT) {
+       if((readingMCP & PAD_RIGHT) || (readingMCP & PAD_RIGHT2)) {parameter=1; myESPboy.playTone(40,40);}
+       if((readingMCP & PAD_LEFT) || (readingMCP & PAD_LEFT2)) {parameter=-1; myESPboy.playTone(40,40);}
+       if((readingMCP & PAD_ACT) || (readingMCP & PAD_ACT2)) {
          menuPosition++; 
          myESPboy.playTone(100,100); 
-         while(myESPboy.getKeys()) delay(100);}
+         while(getKeys()) delay(100);}
        
        switch(menuPosition){
         case 1:
