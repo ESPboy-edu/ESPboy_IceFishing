@@ -86,6 +86,7 @@ struct SaveStruct{
 
 //struct fishing settings
 struct FishingRodSettingsStruct{
+  int16_t currentServoAngle = -1;
   uint32_t millisDisplayFPS = 0;
   uint32_t millisStartFishDetection = 0;
   uint8_t UIupdateFlag = 1;
@@ -147,7 +148,7 @@ void oscilationStep(){
     if (fishingRodSettings.previousAngle != floor(fishingRodSettings.currentAngle)){
       calc = (fishingRodSettings.amplitudeSetting/2 * (1 + (cos (radians(fishingRodSettings.currentAngle + 180)))));
       //Serial.println(calc);
-      servo.write(calc); 
+      servoWrite(calc, 0); 
       myESPboy.myLED.setRGB(0, calc, 0);
       myESPboy.tft.drawFastVLine(126, 0, 127, TFT_BLACK);
       myESPboy.tft.drawFastVLine(127, 0, 127, TFT_BLACK);
@@ -190,6 +191,37 @@ FishDetectionResult detectingFish(){
 };
 
 
+void servoAttach(uint16_t at_pin, uint16_t at_start, uint16_t at_end){
+  if (fishingRodSettings.currentServoAngle == -1){
+    servo.attach(at_pin, at_start, at_end, 45);
+    fishingRodSettings.currentServoAngle = 45;
+  }
+  else
+    servo.attach(SERVO_ATTACH_PIN, at_start, at_end, map(fishingRodSettings.currentServoAngle, 0, 180, at_start, at_end));
+}
+
+
+void servoWrite(int16_t angle, uint16_t dly){
+  if(abs(angle - fishingRodSettings.currentServoAngle) > 10){
+    
+    if(angle > fishingRodSettings.currentServoAngle){
+      for(int8_t i = fishingRodSettings.currentServoAngle; i<= angle; i++){
+        servo.write(i);
+        delay(dly);
+      }
+    }
+    if (angle < fishingRodSettings.currentServoAngle){
+      for(int8_t i = fishingRodSettings.currentServoAngle; i>= angle; i--){
+        servo.write(i);
+        delay(dly);
+      }
+    }
+  }
+      
+  else servo.write(angle); 
+  fishingRodSettings.currentServoAngle = angle;
+};
+
 
 void startFishing(){
   fishingRodSettings.oscilationCount = 0;
@@ -197,13 +229,12 @@ void startFishing(){
   fishingRodSettings.currentAngle = 0;
   fishingRodSettings.millisStartFishDetection = 0;
   fishingRodSettings.UIupdateFlag++;
-  servo.attach(SERVO_ATTACH_PIN, SERVO_ATTACH_START, SERVO_ATTACH_END, SERVO_ATTACH_START);
+  servoAttach(SERVO_ATTACH_PIN, SERVO_ATTACH_START, SERVO_ATTACH_END);
 }
 
 
 void stopFishing(){
-  servo.write(0);
-  delay(500);
+  servoWrite(0, 20);
   myESPboy.myLED.setRGB(0,0,0);
   fishingRodSettings.UIupdateFlag++;
   servo.detach();
@@ -211,15 +242,12 @@ void stopFishing(){
 
 
 void hookedStandby(){
-  servo.attach(SERVO_ATTACH_PIN, SERVO_ATTACH_START, SERVO_ATTACH_END, SERVO_ATTACH_START);
+  servoAttach(SERVO_ATTACH_PIN, SERVO_ATTACH_START, SERVO_ATTACH_END);
   myESPboy.myLED.setRGB(0,0,0);
   fishingRodSettings.UIupdateFlag++;
   fishingRodSettings.currentFishingMode = MODE_STANDBY;
-  for(uint8_t i=0; i<90; i++){
-     servo.write(i);
-     delay(20);}
+  servoWrite(90,30);
   toneHoocked();
-  delay(500);
   servo.detach();
 }
 
@@ -364,8 +392,8 @@ void setup() {
     myESPboy.mcp.pullUp(i, HIGH);}
 
   loadDataFunc();
+  drawUI(0);
   startFishing();
-  delay(500);
   stopFishing();
 }
 
@@ -388,7 +416,7 @@ void loop(){
       
     case MODE_FISHING:
       oscilationStep();
-      if (fishingRodSettings.oscilationCount > fishingRodSettings.oscilationsToPauseSetting && fishingRodSettings.currentAngle==0) {
+      if (fishingRodSettings.oscilationCount >= fishingRodSettings.oscilationsToPauseSetting && fishingRodSettings.currentAngle==0) {
         stopFishing();
         fishingRodSettings.currentFishingMode = MODE_DETECTING;}
       break;
@@ -400,13 +428,15 @@ void loop(){
         startFishing();
         fishingRodSettings.currentFishingMode = MODE_HOOK; 
         myESPboy.myLED.setRGB(LED_LIGHT, LED_LIGHT, LED_LIGHT);
+        
         servo.write(90);
+        fishingRodSettings.currentServoAngle = 90;
+        
         delay(1500);
-        for(uint8_t i=90; i>1; i--){
-          servo.write(i);
-          delay(40);}
+        servoWrite(0, 30);
         servo.detach();
       }
+      
       if (fdr == NOT_DETECTED){
         startFishing();
         fishingRodSettings.currentFishingMode = MODE_FISHING;}
