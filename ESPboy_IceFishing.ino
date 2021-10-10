@@ -211,10 +211,13 @@ void stopFishing(){
 
 
 void hookedStandby(){
-  servo.attach(SERVO_ATTACH_PIN, SERVO_ATTACH_START, SERVO_ATTACH_END, SERVO_ATTACH_END*0.6);
+  servo.attach(SERVO_ATTACH_PIN, SERVO_ATTACH_START, SERVO_ATTACH_END, SERVO_ATTACH_START);
   myESPboy.myLED.setRGB(0,0,0);
   fishingRodSettings.UIupdateFlag++;
   fishingRodSettings.currentFishingMode = MODE_STANDBY;
+  for(uint8_t i=0; i<90; i++){
+     servo.write(i);
+     delay(20);}
   toneHoocked();
   delay(500);
   servo.detach();
@@ -385,7 +388,14 @@ void loop(){
       
     case MODE_FISHING:
       oscilationStep();
-      if (fishingRodSettings.oscilationCount > fishingRodSettings.oscilationsToPauseSetting) {
+      if (fishingRodSettings.oscilationCount > fishingRodSettings.oscilationsToPauseSetting && fishingRodSettings.currentAngle==0) {
+
+       Serial.println();
+       Serial.println(fishingRodSettings.oscilationCount);
+       Serial.println(fishingRodSettings.oscilationCountZeroFlag);
+       Serial.println(fishingRodSettings.currentAngle);
+       Serial.println();
+        
         stopFishing();
         fishingRodSettings.currentFishingMode = MODE_DETECTING;}
       break;
@@ -399,14 +409,9 @@ void loop(){
         myESPboy.myLED.setRGB(LED_LIGHT, LED_LIGHT, LED_LIGHT);
         servo.write(90);
         delay(1500);
-        servo.write(80);
-        delay(500);
-        servo.write(70);
-        delay(500);
-        servo.write(60);
-        delay(500);
-        servo.write(50);
-        delay(500);
+        for(uint8_t i=90; i>1; i--){
+          servo.write(i);
+          delay(40);}
         servo.detach();
       }
       if (fdr == NOT_DETECTED){
