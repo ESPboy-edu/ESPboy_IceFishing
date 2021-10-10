@@ -389,13 +389,6 @@ void loop(){
     case MODE_FISHING:
       oscilationStep();
       if (fishingRodSettings.oscilationCount > fishingRodSettings.oscilationsToPauseSetting && fishingRodSettings.currentAngle==0) {
-
-       Serial.println();
-       Serial.println(fishingRodSettings.oscilationCount);
-       Serial.println(fishingRodSettings.oscilationCountZeroFlag);
-       Serial.println(fishingRodSettings.currentAngle);
-       Serial.println();
-        
         stopFishing();
         fishingRodSettings.currentFishingMode = MODE_DETECTING;}
       break;
